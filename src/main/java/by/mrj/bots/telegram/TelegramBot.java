@@ -1,4 +1,4 @@
-package by.mrj.bots;
+package by.mrj.bots.telegram;
 
 import com.google.common.base.Preconditions;
 import lombok.*;
@@ -33,6 +33,8 @@ public abstract class TelegramBot extends TelegramLongPollingBot {
     private String botUsername;
     @NonNull
     private String botToken;
+    @NonNull
+    private Long chatId;
 
     protected TelegramBot(DefaultBotOptions options) {
         super(options);
@@ -49,13 +51,8 @@ public abstract class TelegramBot extends TelegramLongPollingBot {
     }
 
     @SneakyThrows
-    public Message say(long chatId, String message) {
-        return execute(new SendMessage(chatId, message));
-    }
-
-    @SneakyThrows
     public Message say(String message) {
-        return execute(new SendMessage(DEFAULT_CHAT_ID, message));
+        return execute(new SendMessage(chatId, message));
     }
 
     public abstract void onUpdateReceived(Update update);
@@ -70,25 +67,41 @@ public abstract class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
-     * One bot with name {@param botUsername} could be created.
-     * @param clazz - bot type
+     * One bot with name {@param botUsername} per chat could be created.
+     * This method is short method to use default chat. Look to {@link TelegramBot#DEFAULT_CHAT_ID}
+     * @param clazz - bot type. Could be {@code null} if bot was created earlier.
      */
     @SneakyThrows
     public static TelegramBot takeMe(Class<? extends TelegramBot> clazz, String botUsername) {
+        return takeMe(clazz, botUsername, DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * One bot with name {@param botUsername} could be created.
+     * @param clazz - bot type. Could be {@code null} if bot was created earlier.
+     */
+    @SneakyThrows
+    public static TelegramBot takeMe(Class<? extends TelegramBot> clazz, String botUsername, Long chatId) {
         Preconditions.checkArgument(clazz != null, "Bot class mandatory field.");
+        Preconditions.checkArgument(botUsername != null && !botUsername.isEmpty(), "BotUsername mandatory field.");
+
+        if (chatId == null)
+            chatId = DEFAULT_CHAT_ID;
 
         // no synchronization. simplest solution.
-        TelegramBot telegramBot = nameToBot.getOrDefault(botUsername, createTelegramBot(clazz, botUsername));
-        nameToBot.putIfAbsent(botUsername, telegramBot);
+        // one bot instance per chat.
+        String combinedKey = botUsername + "." + chatId;
+        TelegramBot telegramBot = nameToBot.getOrDefault(combinedKey, createTelegramBot(clazz, botUsername, chatId));
+        nameToBot.putIfAbsent(combinedKey, telegramBot);
 
         return telegramBot;
     }
 
     @SneakyThrows
-    private static TelegramBot createTelegramBot(Class<? extends TelegramBot> clazz, String botUsername) {
+    private static TelegramBot createTelegramBot(Class<? extends TelegramBot> clazz, String botUsername, Long chatId) {
         String botToken = props.getProperty(botUsername + ".token");
 
-        TelegramBot telegramBot = clazz.getDeclaredConstructor(String.class, String.class).newInstance(botUsername, botToken);
+        TelegramBot telegramBot = clazz.getDeclaredConstructor(String.class, String.class, Long.class).newInstance(botUsername, botToken, chatId);
         telegramBot.registerBot();
         return telegramBot;
     }
